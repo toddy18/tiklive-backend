@@ -34,14 +34,23 @@ io.on('connection', (socket) => {
             tiktokConnection.disconnect();
         }
 
-        tiktokConnection = new WebcastPushConnection(username);
+        // Conexión con opciones mejoradas para evitar bloqueos 403
+        tiktokConnection = new WebcastPushConnection(username, {
+            enableExtendedGiftInfo: true,
+            requestOptions: {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'Accept-Language': 'es-ES,es;q=0.9',
+                }
+            }
+        });
 
         tiktokConnection.connect().then(state => {
             console.log(`Conectado exitosamente al Live de @${username} (Room ID: ${state.roomId})`);
             io.emit('status-update', { status: 'connected', username: username, roomId: state.roomId });
         }).catch(err => {
             console.error('Error al conectar con TikTok:', err);
-            socket.emit('status-update', { status: 'error', message: err.message || 'No se pudo conectar' });
+            io.emit('status-update', { status: 'error', message: err.message || 'No se pudo conectar (Error 403 / Live inactivo)' });
         });
 
         tiktokConnection.on('chat', data => {
@@ -49,10 +58,7 @@ io.on('connection', (socket) => {
                 uniqueId: data.uniqueId,
                 nickname: data.nickname,
                 comment: data.comment,
-                profilePictureUrl: data.profilePictureUrl,
-                userBadges: data.userBadges,
-                donorLevel: parseDonorLevel(data.userBadges),
-                fanLevel: parseFanLevel(data.userBadges)
+                profilePictureUrl: data.profilePictureUrl
             });
         });
 
@@ -65,8 +71,7 @@ io.on('connection', (socket) => {
                 giftId: data.giftId,
                 giftName: data.giftName,
                 diamondCount: data.diamondCount * data.repeatCount,
-                repeatCount: data.repeatCount,
-                giftPictureUrl: data.giftDetails?.giftImage?.giftPictureUrl || ''
+                repeatCount: data.repeatCount
             });
         });
 
@@ -102,18 +107,6 @@ io.on('connection', (socket) => {
         console.log('Cliente web desconectado:', socket.id);
     });
 });
-
-function parseDonorLevel(badges) {
-    if (!badges) return 0;
-    const donorBadge = badges.find(b => b.badgeSceneType === 10 || b.type?.includes('privilege'));
-    return donorBadge ? (donorBadge.level || 0) : 0;
-}
-
-function parseFanLevel(badges) {
-    if (!badges) return 0;
-    const fanBadge = badges.find(b => b.badgeSceneType === 8 || b.type?.includes('subscriber'));
-    return fanBadge ? (fanBadge.level || 0) : 0;
-}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
