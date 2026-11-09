@@ -34,13 +34,16 @@ io.on('connection', (socket) => {
             tiktokConnection.disconnect();
         }
 
-        // Conexión con opciones mejoradas para evitar bloqueos 403
+        // Configuración avanzada con headers actualizados para esquivar el bloque 403
         tiktokConnection = new WebcastPushConnection(username, {
             enableExtendedGiftInfo: true,
+            processInitialData: true,
             requestOptions: {
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    'Accept-Language': 'es-ES,es;q=0.9',
+                    'Origin': 'https://www.tiktok.com',
+                    'Referer': 'https://www.tiktok.com/',
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
                 }
             }
         });
@@ -50,7 +53,7 @@ io.on('connection', (socket) => {
             io.emit('status-update', { status: 'connected', username: username, roomId: state.roomId });
         }).catch(err => {
             console.error('Error al conectar con TikTok:', err);
-            io.emit('status-update', { status: 'error', message: err.message || 'No se pudo conectar (Error 403 / Live inactivo)' });
+            io.emit('status-update', { status: 'error', message: 'Error 403 / Asegúrate de que el usuario esté en Live ahora mismo' });
         });
 
         tiktokConnection.on('chat', data => {
