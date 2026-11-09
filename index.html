@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TikLive Companion Mobile</title>
+    <!-- Socket.IO Cliente -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #00f2fe;
+            --accent-pink: #fe2c55;
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--bg-color); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--card-bg); border-bottom: 1px solid #334155; }
+        h1 { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+        .top-btns { display: flex; gap: 8px; }
+        button { background: #334155; color: var(--text); border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+        button.primary { background: var(--accent-pink); color: white; }
+        
+        .container { padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 12px; max-width: 600px; margin: 0 auto; width: 100%; }
+        
+        .card { background: var(--card-bg); border-radius: 10px; padding: 12px; border: 1px solid #334155; }
+        
+        .connection-box { display: flex; gap: 8px; }
+        input { flex: 1; background: #0f172a; border: 1px solid #475569; border-radius: 6px; padding: 8px 12px; color: white; font-size: 0.9rem; }
+        
+        .status-bar { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-dim); margin-top: 6px; }
+        .indicator { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
+        
+        .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
+        .metric-box { background: #0f172a; padding: 8px; border-radius: 8px; }
+        .metric-value { font-size: 1rem; font-weight: bold; color: var(--accent); }
+        .metric-label { font-size: 0.7rem; color: var(--text-dim); }
+
+        .feed-container { flex: 1; display: flex; flex-direction: column; min-height: 250px; background: var(--card-bg); border-radius: 10px; border: 1px solid #334155; overflow: hidden; }
+        .feed-header { display: flex; border-bottom: 1px solid #334155; }
+        .tab { flex: 1; padding: 10px; text-align: center; font-size: 0.8rem; font-weight: 600; color: var(--text-dim); cursor: pointer; background: #1e293b; border: none; }
+        .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); background: #0f172a; }
+        
+        .feed-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; max-height: 300px; }
+        .feed-item { background: #0f172a; padding: 8px 10px; border-radius: 6px; font-size: 0.85rem; border-left: 3px solid var(--accent); }
+        .feed-item.gift { border-left-color: #f59e0b; }
+        .username { font-weight: bold; color: var(--accent); }
+        .badge { background: #334155; font-size: 0.65rem; padding: 1px 4px; border-radius: 4px; margin-left: 4px; color: #fde047; }
+
+        /* Modal TTS Config */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; justify-content: center; align-items: center; padding: 16px; }
+        .modal-content { background: var(--card-bg); width: 100%; max-width: 400px; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #475569; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
+        
+        /* Overlay Mode */
+        .overlay-mode { display: none; position: fixed; inset: 0; background: transparent; z-index: 999; pointer-events: none; padding: 20px; flex-direction: column; justify-content: flex-end; }
+        .floating-alert { background: rgba(15, 23, 42, 0.9); border-left: 4px solid var(--accent-pink); padding: 12px; border-radius: 8px; margin-bottom: 8px; animation: fadeInOut 4s forwards; pointer-events: auto; }
+        @keyframes fadeInOut { 0% { opacity: 0; transform: translateY(20px); } 15% { opacity: 1; transform: translateY(0); } 85% { opacity: 1; } 100% { opacity: 0; display: none; } }
+    </style>
+</head>
+<body>
+
+    <header id="mainHeader">
+        <h1>⚡ TikLive Companion</h1>
+        <div class="top-btns">
+            <button onclick="toggleModal('ttsModal')">🗣️ Voces</button>
+            <button onclick="toggleOverlay()">📺 Overlay</button>
+            <button onclick="toggleModal('helpModal')">❓ Ayuda</button>
+        </div>
+    </header>
+
+    <div class="container" id="mainContainer">
+        <!-- Conexión -->
+        <div class="card">
+            <div class="connection-box">
+                <input type="text" id="inputUsername" placeholder="@usuario_tiktok">
+                <button class="primary" id="btnConnect">Conectar</button>
+            </div>
+            <div class="status-bar">
+                <div class="indicator" id="statusIndicator"></div>
+                <span id="statusText">Desconectado</span>
+            </div>
+        </div>
+
+        <!-- Métricas -->
+        <div class="metrics">
+            <div class="metric-box"><div class="metric-value" id="viewerCount">0</div><div class="metric-label">Vistas</div></div>
+            <div class="metric-box"><div class="metric-value" id="likeCount">0</div><div class="metric-label">Likes</div></div>
+            <div class="metric-box"><div class="metric-value" id="diamondCount">0</div><div class="metric-label">Monedas</div></div>
+            <div class="metric-box"><div class="metric-value" id="followerCount">0</div><div class="metric-label">Seguidores</div></div>
+        </div>
+
+        <!-- Feed en vivo -->
+        <div class="feed-container">
+            <div class="feed-header">
+                <button class="tab active" onclick="switchTab('all')">Todo</button>
+                <button class="tab" onclick="switchTab('chat')">Chat</button>
+                <button class="tab" onclick="switchTab('gifts')">Regalos</button>
+            </div>
+            <div class="feed-list" id="feedList">
+                <div class="feed-item">Sistema listo. Conecta tu cuenta arriba.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlay View -->
+    <div class="overlay-mode" id="overlayView">
+        <div style="position: absolute; top: 10px; right: 10px; pointer-events: auto;">
+            <button onclick="toggleOverlay()" style="background: rgba(0,0,0,0.6); color: white;">Salir Overlay</button>
+        </div>
+        <div id="overlayAlerts" style="display: flex; flex-direction: column; gap: 8px;"></div>
+    </div>
+
+    <!-- Modal TTS -->
+    <div class="modal" id="ttsModal">
+        <div class="modal-content">
+            <div class="modal-header"><span>Configuración de Voz (TTS)</span><button onclick="toggleModal('ttsModal')">✕</button></div>
+            <label style="font-size:0.8rem; color:var(--text-dim);">Voz General del Sistema:</label>
+            <select id="voiceSelect" style="background:#0f172a; color:white; padding:8px; border-radius:6px; border:1px solid #475569;"></select>
+            <label style="font-size:0.8rem; color:var(--text-dim); margin-top:8px;">Asignar voz VIP a espectador (@usuario):</label>
+            <div style="display:flex; gap:6px;">
+                <input type="text" id="vipUser" placeholder="@usuario">
+                <select id="vipVoiceSelect" style="background:#0f172a; color:white; padding:6px; border-radius:6px; border:1px solid #475569; max-width: 130px;"></select>
+                <button class="primary" onclick="addVipVoice()">Guardar</button>
+            </div>
+            <div id="vipList" style="font-size: 0.75rem; color: var(--text-dim); max-height: 80px; overflow-y:auto;"></div>
+            <button onclick="testVoice()" style="margin-top:8px;">🔊 Probar Voz Actual</button>
+        </div>
+    </div>
+
+    <!-- Modal Ayuda -->
+    <div class="modal" id="helpModal">
+        <div class="modal-content">
+            <div class="modal-header"><span>¿Cómo usar?</span><button onclick="toggleModal('helpModal')">✕</button></div>
+            <p style="font-size: 0.85rem; line-height: 1.4; color: var(--text-dim);">
+                1. Despliega tu servidor backend (Node.js) en Render.<br>
+                2. Cambia la URL del Socket en el código frontend.<br>
+                3. Abre esta web en tu celular, ingresa tu usuario y conéctate.<br>
+                4. Usa el modo overlay en tu segundo dispositivo para mostrar alertas transparentes.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Cambiar por tu URL pública de Render (ej: https://tu-servidor.onrender.com)
+        const socket = io('http://localhost:3000');
+
+        let totalLikes = 0;
+        let totalDiamonds = 0;
+        let totalFollowers = 0;
+        let currentTab = 'all';
+        let voices = [];
+        let vipVoices = {};
+
+        // Cargar Voces del Navegador
+        function loadVoices() {
+            voices = window.speechSynthesis.getVoices();
+            const voiceSelect = document.getElementById('voiceSelect');
+            const vipVoiceSelect = document.getElementById('vipVoiceSelect');
+            voiceSelect.innerHTML = '';
+            vipVoiceSelect.innerHTML = '';
+            
+            voices.forEach((voice, index) => {
+                if (voice.lang.includes('es') || voice.lang.includes('en')) {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.textContent = `${voice.name} (${voice.lang})`;
+                    voiceSelect.appendChild(option.cloneNode(true));
+                    vipVoiceSelect.appendChild(option);
+                }
+            });
+        }
+        if (typeof speechSynthesis !== 'undefined') {
+            speechSynthesis.onvoiceschanged = loadVoices;
+            loadVoices();
+        }
+
+        // Conexión
+        document.getElementById('btnConnect').addEventListener('click', () => {
+            const username = document.getElementById('inputUsername').value;
+            if (!username) return alert('Ingresa un usuario de TikTok');
+            socket.emit('connect-tiktok', { username });
+        });
+
+        socket.on('status-update', (data) => {
+            const ind = document.getElementById('statusIndicator');
+            const txt = document.getElementById('statusText');
+            if (data.status === 'connected') {
+                ind.style.background = '#00f2fe';
+                txt.innerText = `En vivo: @${data.username}`;
+            } else {
+                ind.style.background = '#ef4444';
+                txt.innerText = data.message || 'Desconectado';
+            }
+        });
+
+        // Eventos en tiempo real
+        socket.on('chat-event', (data) => {
+            addFeedItem('chat', `<span class="username">@${data.uniqueId}</span>: ${data.comment}`);
+            speakText(data.uniqueId, data.comment);
+        });
+
+        socket.on('gift-event', (data) => {
+            totalDiamonds += data.diamondCount;
+            document.getElementById('diamondCount').innerText = totalDiamonds;
+            addFeedItem('gift', `<span class="username">@${data.uniqueId}</span> envió <strong style="color:#f59e0b">${data.giftName}</strong> (x${data.repeatCount}) 💎${data.diamondCount}`);
+            showOverlayAlert(`🎁 @${data.uniqueId} envió ${data.giftName} (x${data.repeatCount})`);
+        });
+
+        socket.on('like-event', (data) => {
+            totalLikes = data.totalLikeCount;
+            document.getElementById('likeCount').innerText = totalLikes;
+        });
+
+        socket.on('follow-event', (data) => {
+            totalFollowers++;
+            document.getElementById('followerCount').innerText = totalFollowers;
+            addFeedItem('chat', `<span class="username">@${data.uniqueId}</span> comenzó a seguirte! ❤️`);
+        });
+
+        socket.on('room-user-event', (data) => {
+            document.getElementById('viewerCount').innerText = data.viewerCount;
+        });
+
+        // TTS Reader
+        function speakText(username, text) {
+            if (!('speechSynthesis' in window)) return;
+            const utterance = new SpeechSynthesisUtterance(text);
+            const selectedVoiceIndex = vipVoices[username] || document.getElementById('voiceSelect').value;
+            if (voices[selectedVoiceIndex]) {
+                utterance.voice = voices[selectedVoiceIndex];
+            }
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function testVoice() {
+            speakText('test', 'Probando sistema de voz sintetizada en TikLive.');
+        }
+
+        function addVipVoice() {
+            const user = document.getElementById('vipUser').value.trim().replace('@', '');
+            const vIndex = document.getElementById('vipVoiceSelect').value;
+            if (!user) return alert('Ingresa un usuario');
+            vipVoices[user] = vIndex;
+            document.getElementById('vipList').innerHTML += `<div>@${user} (Voz configurada)</div>`;
+            document.getElementById('vipUser').value = '';
+        }
+
+        // UI Helpers
+        function addFeedItem(type, htmlContent) {
+            const list = document.getElementById('feedList');
+            const item = document.createElement('div');
+            item.className = `feed-item ${type}`;
+            item.innerHTML = htmlContent;
+            list.prepend(item);
+            if (list.childElementCount > 50) list.lastChild.remove();
+        }
+
+        function showOverlayAlert(text) {
+            const container = document.getElementById('overlayAlerts');
+            const alertBox = document.createElement('div');
+            alertBox.className = 'floating-alert';
+            alertBox.innerText = text;
+            container.appendChild(alertBox);
+            setTimeout(() => alertBox.remove(), 4000);
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        function toggleModal(id) {
+            const m = document.getElementById(id);
+            m.style.display = m.style.display === 'flex' ? 'none' : 'flex';
+        }
+
+        function toggleOverlay() {
+            const ov = document.getElementById('overlayView');
+            const main = document.getElementById('mainContainer');
+            const header = document.getElementById('mainHeader');
+            if (ov.style.display === 'flex') {
+                ov.style.display = 'none';
+                main.style.display = 'flex';
+                header.style.display = 'flex';
+            } else {
+                ov.style.display = 'flex';
+                main.style.display = 'none';
+                header.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
