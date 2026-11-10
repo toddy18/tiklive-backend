@@ -136,8 +136,8 @@
         <div class="modal-content">
             <div class="modal-header"><span>¿Cómo usar?</span><button onclick="toggleModal('helpModal')">✕</button></div>
             <p style="font-size: 0.85rem; line-height: 1.4; color: var(--text-dim);">
-                1. Despliega tu servidor backend (Node.js) en Render.<br>
-                2. Cambia la URL del Socket en el código frontend.<br>
+                1. El servidor backend está configurado en Railway.<br>
+                2. Asegúrate de que el usuario de TikTok esté en vivo.<br>
                 3. Abre esta web en tu celular, ingresa tu usuario y conéctate.<br>
                 4. Usa el modo overlay en tu segundo dispositivo para mostrar alertas transparentes.
             </p>
@@ -145,8 +145,8 @@
     </div>
 
     <script>
-        // Cambiar por tu URL pública de Render (ej: https://tu-servidor.onrender.com)
-        const socket = io('http://localhost:3000');
+        // Backend público de Railway
+        const socket = io('https://tiklive-backend-production.up.railway.app');
 
         let totalLikes = 0;
         let totalDiamonds = 0;
