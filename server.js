@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const { WebcastPushConnection } = require('tiktok-live-connector');
+const { TikTokLiveConnection } = require('tiktok-live-connector');
 
 const app = express();
 app.use(cors());
@@ -15,98 +15,140 @@ const io = new Server(server, {
     }
 });
 
-let tiktokConnection = null;
+app.get('/health', (_req, res) => {
+    res.json({ status: 'ok', connectorVersion: '2.5.0', protocolVersion: 2 });
+});
+
+const { classifyConnectionError } = require('./connection-errors');
 
 io.on('connection', (socket) => {
     console.log('Cliente conectado desde la web:', socket.id);
 
-    socket.on('connect-tiktok', (data) => {
-        const username = data.username.replace('@', '').trim();
+    let tiktokConnection = null;
+    let connecting = false;
+
+    function releaseConnection() {
+        const previous = tiktokConnection;
+        tiktokConnection = null;
+        if (previous) Promise.resolve().then(() => previous.disconnect()).catch(() => {});
+    }
+
+    socket.on('connect-tiktok', async (data) => {
+        if (connecting) return;
+        const username = typeof data?.username === 'string'
+            ? data.username.trim().replace(/^@/, '') : '';
         
-        if (!username) {
+        if (!/^[a-zA-Z0-9._]{1,24}$/.test(username)) {
             socket.emit('status-update', { status: 'error', message: 'Nombre de usuario inválido' });
             return;
         }
 
         console.log(`Intentando conectar con el Live de: @${username}`);
         
-        if (tiktokConnection) {
-            tiktokConnection.disconnect();
+        connecting = true;
+        releaseConnection();
+        let connection;
+        try {
+            connection = new TikTokLiveConnection(username, {
+                enableExtendedGiftInfo: false,
+                processInitialData: true
+            });
+            tiktokConnection = connection;
+        } catch (err) {
+            connecting = false;
+            const failure = classifyConnectionError(err);
+            console.error('TikTok connection failed:', failure.code);
+            socket.emit('status-update', { status: 'error', ...failure });
+            return;
         }
 
-        // Configuración avanzada con headers actualizados para esquivar el bloque 403
-        tiktokConnection = new WebcastPushConnection(username, {
-            enableExtendedGiftInfo: true,
-            processInitialData: true,
-            requestOptions: {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    'Origin': 'https://www.tiktok.com',
-                    'Referer': 'https://www.tiktok.com/',
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
-                }
-            }
+        const reportFailure = (err) => {
+            if (tiktokConnection !== connection) return;
+            const failure = classifyConnectionError(err);
+            // Never log raw errors: upstream HTTP errors can include credentials.
+            console.error('TikTok connection failed:', failure.code);
+            socket.emit('status-update', { status: 'error', ...failure });
+            releaseConnection();
+        };
+        connection.on('error', reportFailure);
+        connection.on('disconnected', () => {
+            if (tiktokConnection !== connection) return;
+            socket.emit('status-update', { status: 'disconnected', message: 'Se perdió la conexión con TikTok. Vuelve a conectar.' });
+            releaseConnection();
         });
 
-        tiktokConnection.connect().then(state => {
-            console.log(`Conectado exitosamente al Live de @${username} (Room ID: ${state.roomId})`);
-            io.emit('status-update', { status: 'connected', username: username, roomId: state.roomId });
-        }).catch(err => {
-            console.error('Error al conectar con TikTok:', err);
-            io.emit('status-update', { status: 'error', message: 'Error 403 / Asegúrate de que el usuario esté en Live ahora mismo' });
-        });
-
-        tiktokConnection.on('chat', data => {
-            io.emit('chat-event', {
-                uniqueId: data.uniqueId,
-                nickname: data.nickname,
+        connection.on('chat', data => {
+            if (tiktokConnection !== connection) return;
+            socket.emit('chat-event', {
+                uniqueId: data.user?.uniqueId,
+                nickname: data.user?.nickname,
                 comment: data.comment,
-                profilePictureUrl: data.profilePictureUrl
+                profilePictureUrl: data.user?.profilePicture?.urls?.[0]
             });
         });
 
-        tiktokConnection.on('gift', data => {
-            if (data.giftType === 1 && data.repeatEnd === 0) return;
+        connection.on('gift', data => {
+            if (tiktokConnection !== connection) return;
+            if (data.giftDetails?.giftType === 1 && !data.repeatEnd) return;
 
-            io.emit('gift-event', {
-                uniqueId: data.uniqueId,
-                nickname: data.nickname,
+            socket.emit('gift-event', {
+                uniqueId: data.user?.uniqueId,
+                nickname: data.user?.nickname,
                 giftId: data.giftId,
-                giftName: data.giftName,
-                diamondCount: data.diamondCount * data.repeatCount,
+                giftName: data.giftDetails?.giftName || 'Regalo',
+                diamondCount: Number(data.giftDetails?.diamondCount || 0) * Number(data.repeatCount || 1),
                 repeatCount: data.repeatCount
             });
         });
 
-        tiktokConnection.on('follow', data => {
-            io.emit('follow-event', {
-                uniqueId: data.uniqueId,
-                nickname: data.nickname
+        connection.on('follow', data => {
+            if (tiktokConnection !== connection) return;
+            socket.emit('follow-event', {
+                uniqueId: data.user?.uniqueId,
+                nickname: data.user?.nickname
             });
         });
 
-        tiktokConnection.on('like', data => {
-            io.emit('like-event', {
-                uniqueId: data.uniqueId,
-                nickname: data.nickname,
+        connection.on('like', data => {
+            if (tiktokConnection !== connection) return;
+            socket.emit('like-event', {
+                uniqueId: data.user?.uniqueId,
+                nickname: data.user?.nickname,
                 likeCount: data.likeCount,
                 totalLikeCount: data.totalLikeCount
             });
         });
 
-        tiktokConnection.on('roomUser', data => {
-            io.emit('room-user-event', {
+        connection.on('roomUser', data => {
+            if (tiktokConnection !== connection) return;
+            socket.emit('room-user-event', {
                 viewerCount: data.viewerCount
             });
         });
 
-        tiktokConnection.on('streamEnd', () => {
+        connection.on('streamEnd', () => {
+            if (tiktokConnection !== connection) return;
             console.log('El Live ha finalizado');
-            io.emit('status-update', { status: 'disconnected', message: 'El Live ha finalizado' });
+            socket.emit('status-update', { status: 'disconnected', message: 'El Live ha finalizado' });
+            releaseConnection();
         });
+
+        try {
+            const state = await connection.connect();
+            if (tiktokConnection === connection && socket.connected) {
+                socket.emit('status-update', { status: 'connected', username, roomId: state.roomId });
+            } else {
+                await connection.disconnect();
+            }
+        } catch (err) {
+            reportFailure(err);
+        } finally {
+            connecting = false;
+        }
     });
 
     socket.on('disconnect', () => {
+        releaseConnection();
         console.log('Cliente web desconectado:', socket.id);
     });
 });
