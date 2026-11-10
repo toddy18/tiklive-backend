@@ -10,6 +10,6 @@
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "socket.io": "^4.7.2",
-    "tiktok-live-connector": "*"
+    "tiktok-live-connector": "2.5.0"
   }
 }

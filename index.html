@@ -76,10 +76,10 @@
         <!-- Conexión -->
         <div class="card">
             <div class="connection-box">
-                <input type="text" id="inputUsername" placeholder="@usuario_tiktok">
+                <input type="text" id="inputUsername" placeholder="@usuario_tiktok" aria-label="Usuario de TikTok" autocomplete="off">
                 <button class="primary" id="btnConnect">Conectar</button>
             </div>
-            <div class="status-bar">
+            <div class="status-bar" role="status" aria-live="polite">
                 <div class="indicator" id="statusIndicator"></div>
                 <span id="statusText">Desconectado</span>
             </div>
@@ -136,17 +136,19 @@
         <div class="modal-content">
             <div class="modal-header"><span>¿Cómo usar?</span><button onclick="toggleModal('helpModal')">✕</button></div>
             <p style="font-size: 0.85rem; line-height: 1.4; color: var(--text-dim);">
-                1. Despliega tu servidor backend (Node.js) en Render.<br>
-                2. Cambia la URL del Socket en el código frontend.<br>
-                3. Abre esta web en tu celular, ingresa tu usuario y conéctate.<br>
-                4. Usa el modo overlay en tu segundo dispositivo para mostrar alertas transparentes.
+                1. Inicia un LIVE en TikTok.<br>
+                2. Ingresa tu nombre de usuario, con o sin @, y pulsa Conectar o Enter.<br>
+                3. Espera el estado de conexión. El servidor puede tardar en responder al iniciar.<br>
+                4. Usa el modo overlay para mostrar alertas en este dispositivo.
             </p>
         </div>
     </div>
 
     <script>
-        // Cambiar por tu URL pública de Render (ej: https://tu-servidor.onrender.com)
-        const socket = io('http://localhost:3000');
+        // Servidor persistente que recibe los eventos de TikTok Live.
+        const socket = typeof io === 'function'
+            ? io('https://tiklive-backend.onrender.com', { timeout: 20000 })
+            : null;
 
         let totalLikes = 0;
         let totalDiamonds = 0;
@@ -179,49 +181,111 @@
         }
 
         // Conexión
-        document.getElementById('btnConnect').addEventListener('click', () => {
-            const username = document.getElementById('inputUsername').value;
-            if (!username) return alert('Ingresa un usuario de TikTok');
-            socket.emit('connect-tiktok', { username });
-        });
+        const connectButton = document.getElementById('btnConnect');
+        const usernameInput = document.getElementById('inputUsername');
+        let pendingUsername = null;
+        let connectionTimer;
 
-        socket.on('status-update', (data) => {
-            const ind = document.getElementById('statusIndicator');
-            const txt = document.getElementById('statusText');
-            if (data.status === 'connected') {
-                ind.style.background = '#00f2fe';
-                txt.innerText = `En vivo: @${data.username}`;
-            } else {
-                ind.style.background = '#ef4444';
-                txt.innerText = data.message || 'Desconectado';
+        function showStatus(message, color = '#ef4444') {
+            document.getElementById('statusIndicator').style.background = color;
+            document.getElementById('statusText').textContent = message;
+        }
+
+        function finishConnection() {
+            clearTimeout(connectionTimer);
+            pendingUsername = null;
+            connectButton.disabled = false;
+            connectButton.textContent = 'Conectar';
+        }
+
+        function requestLiveConnection() {
+            if (!pendingUsername) return;
+            showStatus(`Conectando al LIVE de @${pendingUsername}…`, '#f59e0b');
+            socket.emit('connect-tiktok', { username: pendingUsername });
+        }
+
+        function connectTikTok() {
+            if (connectButton.disabled) return;
+            const username = usernameInput.value.trim().replace(/^@/, '');
+            if (!/^[a-zA-Z0-9._]{1,24}$/.test(username)) {
+                showStatus('Ingresa un nombre de usuario válido de TikTok, sin enlaces ni espacios.');
+                usernameInput.focus();
+                return;
+            }
+            if (!socket) {
+                showStatus('No se pudo cargar la conexión. Recarga la página e inténtalo de nuevo.');
+                return;
+            }
+            pendingUsername = username;
+            connectButton.disabled = true;
+            connectButton.textContent = 'Conectando…';
+            showStatus('Conectando con el servidor; puede tardar al iniciar…', '#f59e0b');
+            connectionTimer = setTimeout(() => {
+                finishConnection();
+                showStatus('La conexión tardó demasiado. Comprueba que la cuenta esté en LIVE e inténtalo de nuevo.');
+            }, 60000);
+            if (socket.connected) requestLiveConnection();
+            else socket.connect();
+        }
+
+        connectButton.addEventListener('click', connectTikTok);
+        usernameInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                connectTikTok();
             }
         });
 
+        socket?.on('connect', () => {
+            if (pendingUsername) requestLiveConnection();
+            else showStatus('Servidor disponible. Ingresa tu usuario para conectar al LIVE.', '#94a3b8');
+        });
+        socket?.on('connect_error', () => {
+            finishConnection();
+            showStatus('No se pudo conectar con el servidor. Puede estar iniciándose; vuelve a pulsar Conectar en unos segundos.');
+        });
+        socket?.on('disconnect', () => {
+            finishConnection();
+            showStatus('Se perdió la conexión con el servidor. Vuelve a pulsar Conectar cuando esté disponible.');
+        });
+        socket?.on('status-update', (data) => {
+            finishConnection();
+            if (data.status === 'connected') {
+                showStatus(`En vivo: @${data.username}`, '#00f2fe');
+            } else {
+                const legacyError = data.message === 'Error 403 / Asegúrate de que el usuario esté en Live ahora mismo';
+                showStatus(legacyError
+                    ? 'El servidor no pudo abrir el LIVE y devuelve un error genérico. Es necesario actualizar el backend de Render para identificar la causa; este mensaje no confirma un error 403.'
+                    : data.message || 'Desconectado');
+            }
+        });
+        if (!socket) showStatus('No se pudo cargar la conexión. Recarga la página e inténtalo de nuevo.');
+
         // Eventos en tiempo real
-        socket.on('chat-event', (data) => {
+        socket?.on('chat-event', (data) => {
             addFeedItem('chat', `<span class="username">@${data.uniqueId}</span>: ${data.comment}`);
             speakText(data.uniqueId, data.comment);
         });
 
-        socket.on('gift-event', (data) => {
+        socket?.on('gift-event', (data) => {
             totalDiamonds += data.diamondCount;
             document.getElementById('diamondCount').innerText = totalDiamonds;
             addFeedItem('gift', `<span class="username">@${data.uniqueId}</span> envió <strong style="color:#f59e0b">${data.giftName}</strong> (x${data.repeatCount}) 💎${data.diamondCount}`);
             showOverlayAlert(`🎁 @${data.uniqueId} envió ${data.giftName} (x${data.repeatCount})`);
         });
 
-        socket.on('like-event', (data) => {
+        socket?.on('like-event', (data) => {
             totalLikes = data.totalLikeCount;
             document.getElementById('likeCount').innerText = totalLikes;
         });
 
-        socket.on('follow-event', (data) => {
+        socket?.on('follow-event', (data) => {
             totalFollowers++;
             document.getElementById('followerCount').innerText = totalFollowers;
             addFeedItem('chat', `<span class="username">@${data.uniqueId}</span> comenzó a seguirte! ❤️`);
         });
 
-        socket.on('room-user-event', (data) => {
+        socket?.on('room-user-event', (data) => {
             document.getElementById('viewerCount').innerText = data.viewerCount;
         });
 
