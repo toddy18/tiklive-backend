@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Panel de Administrador · TikLive</title>
+    <style>
+        :root {
+            --bg: #0f172a; --card: #1e293b; --border: #334155;
+            --accent: #00f2fe; --pink: #fe2c55; --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444;
+            --text: #f8fafc; --dim: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: var(--bg); color: var(--text); min-height: 100vh; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--border); }
+        h1 { font-size: 1.1rem; color: var(--accent); }
+        a { color: var(--dim); font-size: 0.85rem; }
+        .container { max-width: 900px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+        .card h2 { font-size: 0.95rem; margin-bottom: 10px; }
+        label { display: block; font-size: 0.75rem; color: var(--dim); margin-bottom: 4px; }
+        input { width: 100%; background: var(--bg); border: 1px solid #475569; border-radius: 6px; padding: 8px 10px; color: white; font-size: 0.9rem; }
+        .row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+        button { background: #334155; color: var(--text); border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+        button.primary { background: var(--pink); }
+        button.small { padding: 4px 8px; font-size: 0.75rem; }
+        .hero { display: flex; align-items: center; gap: 14px; }
+        .big-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+        .big-dot.ok { background: var(--ok); box-shadow: 0 0 12px var(--ok); }
+        .big-dot.warn { background: var(--warn); }
+        .big-dot.bad { background: var(--bad); }
+        .hero-title { font-size: 1.15rem; font-weight: 700; }
+        .hero-sub { font-size: 0.8rem; color: var(--dim); margin-top: 2px; }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+        .stat { background: var(--bg); border-radius: 8px; padding: 10px; text-align: center; }
+        .stat-v { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+        .stat-l { font-size: 0.7rem; color: var(--dim); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+        th { color: var(--dim); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
+        .pill.connected { background: rgba(34,197,94,.15); color: var(--ok); }
+        .pill.connecting { background: rgba(245,158,11,.15); color: var(--warn); }
+        .pill.error, .pill.disconnected { background: rgba(239,68,68,.15); color: var(--bad); }
+        .empty { color: var(--dim); font-size: 0.85rem; padding: 10px 0; }
+        .msg { font-size: 0.8rem; margin-top: 8px; color: var(--dim); }
+        .msg.err { color: var(--bad); }
+        .table-wrap { overflow-x: auto; }
+        @media (max-width: 640px) {
+            .row { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🛡️ Panel de Administrador</h1>
+        <a href="/">← Volver a la app</a>
+    </header>
+
+    <div class="container">
+        <div class="card">
+            <h2>Acceso al servidor</h2>
+            <div class="row">
+                <div>
+                    <label for="serverUrl">URL del servidor backend</label>
+                    <input id="serverUrl" type="url" placeholder="https://tu-servidor.onrender.com">
+                </div>
+                <div>
+                    <label for="adminKey">Clave de administrador</label>
+                    <input id="adminKey" type="password" placeholder="ADMIN_KEY" autocomplete="current-password">
+                </div>
+                <button class="primary" id="btnSave">Guardar y ver</button>
+            </div>
+            <div class="msg" id="accessMsg">Se guarda en este navegador para no tener que escribirla cada vez.</div>
+        </div>
+
+        <div class="card">
+            <div class="hero">
+                <div class="big-dot" id="globalDot"></div>
+                <div>
+                    <div class="hero-title" id="globalTitle">Sin datos</div>
+                    <div class="hero-sub" id="globalSub">Configura el acceso para ver el estado.</div>
+                </div>
+            </div>
+            <div class="stats">
+                <div class="stat"><div class="stat-v" id="sConnected">–</div><div class="stat-l">Conexiones TikTok activas</div></div>
+                <div class="stat"><div class="stat-v" id="sConnecting">–</div><div class="stat-l">Conectando</div></div>
+                <div class="stat"><div class="stat-v" id="sErrors">–</div><div class="stat-l">Con error / finalizadas</div></div>
+                <div class="stat"><div class="stat-v" id="sClients">–</div><div class="stat-l">Clientes web</div></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h2 style="margin:0;">Perfiles conectados</h2>
+                <button class="small" id="btnRefresh">↻ Actualizar</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Usuario</th><th>Estado</th><th>Activo desde</th><th>Último evento</th>
+                            <th>Vistas</th><th>Likes</th><th>Monedas</th><th>Clientes</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionsBody"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="emptyMsg">No hay conexiones con TikTok en este momento.</div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_URL = 'tiklive_admin_server';
+        const STORAGE_KEY = 'tiklive_admin_key';
+        const REFRESH_MS = 5000;
+
+        const $ = (id) => document.getElementById(id);
+        $('serverUrl').value = localStorage.getItem(STORAGE_URL) || 'http://localhost:3000';
+        $('adminKey').value = localStorage.getItem(STORAGE_KEY) || '';
+
+        let timer = null;
+
+        function baseUrl() { return $('serverUrl').value.trim().replace(/\/+$/, ''); }
+
+        function esc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+        }
+
+        function ago(ts) {
+            if (!ts) return '–';
+            const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+            if (s < 60) return `hace ${s}s`;
+            if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+            return `hace ${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+        }
+
+        function duration(sec) {
+            const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+            return h ? `${h} h ${m} min` : `${m} min`;
+        }
+
+        const STATUS_LABEL = { connected: 'Activa', connecting: 'Conectando', error: 'Error', disconnected: 'Finalizada' };
+
+        function setGlobal(level, title, sub) {
+            $('globalDot').className = 'big-dot ' + level;
+            $('globalTitle').textContent = title;
+            $('globalSub').textContent = sub;
+        }
+
+        async function refresh() {
+            const url = baseUrl();
+            const key = $('adminKey').value;
+            if (!url || !key) {
+                setGlobal('', 'Sin datos', 'Configura la URL del servidor y la clave de administrador.');
+                return;
+            }
+            try {
+                const res = await fetch(`${url}/api/admin/status`, { headers: { 'x-admin-key': key } });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setGlobal('bad', 'Acceso denegado', data.error || `Error ${res.status}`);
+                    render(null);
+                    return;
+                }
+                const { summary, server, sessions } = data;
+                if (summary.connected > 0) {
+                    setGlobal('ok', `Conexión con TikTok ACTIVA (${summary.connected})`,
+                        `Servidor en línea · uptime ${duration(server.uptimeSeconds)} · actualizado ${new Date().toLocaleTimeString()}`);
+                } else if (summary.connecting > 0) {
+                    setGlobal('warn', 'Conectando con TikTok…', `Servidor en línea · uptime ${duration(server.uptimeSeconds)}`);
+                } else {
+                    setGlobal('bad', 'Sin conexión activa con TikTok',
+                        `El servidor está en línea (uptime ${duration(server.uptimeSeconds)}), pero ningún perfil está conectado.`);
+                }
+                $('sConnected').textContent = summary.connected;
+                $('sConnecting').textContent = summary.connecting;
+                $('sErrors').textContent = summary.withErrors;
+                $('sClients').textContent = server.connectedClients;
+                render(sessions);
+            } catch (e) {
+                setGlobal('bad', 'Servidor fuera de línea', `No se pudo contactar con ${url}`);
+                ['sConnected', 'sConnecting', 'sErrors', 'sClients'].forEach(id => $(id).textContent = '–');
+                render(null);
+            }
+        }
+
+        function render(sessions) {
+            const body = $('sessionsBody');
+            body.innerHTML = '';
+            const list = sessions || [];
+            $('emptyMsg').style.display = list.length ? 'none' : 'block';
+            list.sort((a, b) => (a.status === 'connected' ? -1 : 1) - (b.status === 'connected' ? -1 : 1));
+            for (const s of list) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>@${esc(s.username)}</strong>${s.message ? `<div style="color:var(--dim);font-size:.7rem">${esc(s.message)}</div>` : ''}</td>
+                    <td><span class="pill ${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span></td>
+                    <td>${s.connectedAt ? ago(s.connectedAt) : '–'}</td>
+                    <td>${ago(s.lastEventAt)}</td>
+                    <td>${esc(s.viewerCount)}</td>
+                    <td>${esc(s.totalLikes)}</td>
+                    <td>${esc(s.totalDiamonds)}</td>
+                    <td>${esc(s.clients)}</td>
+                    <td><button class="small" data-user="${esc(s.username)}">Desconectar</button></td>`;
+                body.appendChild(tr);
+            }
+        }
+
+        $('sessionsBody').addEventListener('click', async (e) => {
+            const user = e.target.dataset && e.target.dataset.user;
+            if (!user || !confirm(`¿Desconectar a @${user}?`)) return;
+            try {
+                await fetch(`${baseUrl()}/api/admin/disconnect/${encodeURIComponent(user)}`, {
+                    method: 'POST', headers: { 'x-admin-key': $('adminKey').value }
+                });
+            } catch (err) {}
+            refresh();
+        });
+
+        $('btnSave').addEventListener('click', () => {
+            localStorage.setItem(STORAGE_URL, baseUrl());
+            localStorage.setItem(STORAGE_KEY, $('adminKey').value);
+            $('accessMsg').className = 'msg';
+            $('accessMsg').textContent = 'Guardado. El estado se actualiza cada 5 segundos.';
+            start();
+        });
+        $('btnRefresh').addEventListener('click', refresh);
+
+        function start() {
+            clearInterval(timer);
+            refresh();
+            timer = setInterval(refresh, REFRESH_MS);
+        }
+        start();
+    </script>
+</body>
+</html>
