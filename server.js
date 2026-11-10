@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const { WebcastPushConnection } = require('tiktok-live-connector');
+const TikTokLive = require('tiktok-live-connector');
 
 const app = express();
 app.use(cors());
@@ -18,7 +18,7 @@ const io = new Server(server, {
 let tiktokConnection = null;
 
 io.on('connection', (socket) => {
-    console.log('Cliente conectado:', socket.id);
+    console.log('Cliente web conectado:', socket.id);
 
     socket.on('connect-tiktok', (data) => {
         const username = data.username.replace('@', '').trim();
@@ -28,28 +28,33 @@ io.on('connection', (socket) => {
             return;
         }
 
-        console.log(`Conectando a @${username}`);
+        console.log(`Conectando al Live de: @${username}`);
         
         if (tiktokConnection) {
             try { tiktokConnection.disconnect(); } catch (e) {}
         }
 
         try {
-            tiktokConnection = new WebcastPushConnection(username, {
+            // Obtener el constructor correctamente desde el paquete de zerodytrash
+            const ConnectionConstructor = TikTokLive.WebcastPushConnection || TikTokLive.default || TikTokLive;
+            
+            tiktokConnection = new ConnectionConstructor(username, {
                 enableExtendedGiftInfo: true,
                 requestOptions: {
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                        'Origin': 'https://www.tiktok.com',
+                        'Referer': 'https://www.tiktok.com/'
                     }
                 }
             });
 
             tiktokConnection.connect().then(state => {
-                console.log(`Conectado a @${username} (Room ID: ${state.roomId})`);
+                console.log(`Conectado exitosamente a @${username} (Room ID: ${state.roomId})`);
                 io.emit('status-update', { status: 'connected', username: username });
             }).catch(err => {
-                console.error('Error de conexión:', err);
-                io.emit('status-update', { status: 'error', message: 'Error al conectar (¿Está en LIVE?)' });
+                console.error('Error al conectar:', err);
+                io.emit('status-update', { status: 'error', message: 'Error al conectar (¿El usuario está en LIVE?)' });
             });
 
             tiktokConnection.on('chat', data => {
@@ -76,7 +81,7 @@ io.on('connection', (socket) => {
             });
 
             tiktokConnection.on('like', data => {
-                io.emit('like-event', { uniqueId: data.uniqueId, totalLikeCount: data.totalLikeCount });
+                io.emit('like-event', { totalLikeCount: data.totalLikeCount });
             });
 
             tiktokConnection.on('roomUser', data => {
@@ -88,7 +93,8 @@ io.on('connection', (socket) => {
             });
 
         } catch (e) {
-            console.error('Falla:', e);
+            console.error('Error crítico al instanciar:', e);
+            socket.emit('status-update', { status: 'error', message: 'Falla interna de conexión' });
         }
     });
 
@@ -99,5 +105,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Servidor en puerto ${PORT}`);
+    console.log(`Servidor corriendo en puerto ${PORT}`);
 });
